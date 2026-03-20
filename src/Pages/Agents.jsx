@@ -5,7 +5,7 @@ import {
   Tooltip, ResponsiveContainer, BarChart, Bar, Cell 
 } from "recharts";
 
-const apiUrl = import.meta.env.API_URL;
+const apiUrl = "https://sales-crm-8og5.onrender.com";
 
 function Agents() {
   const [agents, setAgents] = useState([]);
