@@ -10,7 +10,7 @@ import {
   FiChevronDown, FiChevronUp, FiLogOut, FiTrendingUp, FiSearch, FiX, FiRefreshCw 
 } from "react-icons/fi";
 
-const apiUrl = import.meta.env.API_URL || "http://localhost:8080";
+const apiUrl = "https://sales-crm-8og5.onrender.com";
 
 function Admin() {
   const [password, setPassword] = useState("");
