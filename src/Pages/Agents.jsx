@@ -141,9 +141,9 @@ function Agents() {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-800">
-                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-slate-500">Operative</th>
-                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-center text-slate-500">Daily Delta</th>
-                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-center text-slate-500">Monthly Aggregate</th>
+                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-slate-500">Agents</th>
+                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-center text-slate-500">Today Sales</th>
+                <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-center text-slate-500">Monthly Sales</th>
                 <th className="px-8 py-5 text-xs font-bold uppercase tracking-widest text-right text-slate-500">Status</th>
               </tr>
             </thead>
