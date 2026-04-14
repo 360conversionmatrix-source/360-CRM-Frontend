@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo } from "react";
-import { FiUsers, FiTrendingUp, FiAward, FiSearch, FiRefreshCw, FiZap } from "react-icons/fi";
+import { FiUsers, FiAward, FiSearch, FiRefreshCw, FiZap } from "react-icons/fi";
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, 
-  Tooltip, ResponsiveContainer, BarChart, Bar, Cell 
+  CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell 
 } from "recharts";
 
-const apiUrl ="https://sales-crm-8og5.onrender.com";
+const apiUrl = "https://sales-crm-8og5.onrender.com";
 
 function Agents() {
   const [agents, setAgents] = useState([]);
@@ -15,6 +14,7 @@ function Agents() {
 
   useEffect(() => {
     const fetchAgentData = () => {
+      setLoading(true);
       fetch(`${apiUrl}/Agent-data`)
         .then((res) => res.json())
         .then((data) => {
@@ -34,23 +34,31 @@ function Agents() {
     return () => clearInterval(interval);
   }, []);
 
-  // Data processing
+  // Data processing: Filter out CM360 and handle search
   const displayAgents = useMemo(() => {
     return agents
-      .filter((a) => a.agent.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter((a) => {
+        const name = a.agent || "";
+        const isNotCM360 = name.toUpperCase() !== "CM360";
+        const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
+        return isNotCM360 && matchesSearch;
+      })
       .sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0));
   }, [agents, searchTerm]);
 
   const stats = useMemo(() => {
-    const totalToday = agents.reduce((sum, a) => sum + (Number(a.todaySales) || 0), 0);
+    // We keep totalToday calculation in case you need it for logic, 
+    // but we won't display the card in the UI.
+    const totalToday = displayAgents.reduce((sum, a) => sum + (Number(a.todaySales) || 0), 0);
     const topPerformer = displayAgents.length > 0 ? displayAgents[0].agent : "N/A";
-    // Chart data: Top 5 agents for the bar graph
+    
     const chartData = displayAgents.slice(0, 6).map(a => ({
-      name: a.agent.split(' ')[0],
+      name: (a.agent || "").split(' ')[0],
       sales: Number(a.todaySales) || 0
     }));
+
     return { totalToday, topPerformer, chartData };
-  }, [agents, displayAgents]);
+  }, [displayAgents]);
 
   return (
     <div className="min-h-screen bg-[#020617] text-slate-200 p-4 md:p-10 font-sans">
@@ -79,20 +87,22 @@ function Agents() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <button className="p-3 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 transition-all text-slate-400">
+            <button 
+              onClick={() => window.location.reload()} 
+              className="p-3 bg-slate-900 border border-slate-800 rounded-xl hover:bg-slate-800 transition-all text-slate-400"
+            >
               <FiRefreshCw size={20} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
         </header>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <StatCard label="Active Agents" value={agents.length} icon={<FiUsers />} color="from-blue-600 to-cyan-500" />
-          <StatCard label="Today's Sales" value={stats.totalToday} icon={<FiTrendingUp />} color="from-emerald-600 to-teal-500" />
+        {/* Stats Grid - Removed Today's Sales Card */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+          <StatCard label="Active Agents" value={displayAgents.length} icon={<FiUsers />} color="from-blue-600 to-cyan-500" />
           <StatCard label="Today MVP" value={stats.topPerformer} icon={<FiAward />} color="from-violet-600 to-fuchsia-500" />
         </div>
 
-        {/* Performance Graph */}
+        {/* Performance Graph & Ranking */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
           <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/50 p-6 rounded-3xl backdrop-blur-xl">
             <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
@@ -119,7 +129,6 @@ function Agents() {
             </div>
           </div>
 
-          {/* Ranking Sidebar */}
           <div className="bg-slate-900/40 border border-slate-800/50 p-6 rounded-3xl backdrop-blur-xl flex flex-col">
             <h3 className="text-lg font-semibold text-white mb-6">Real-time Ranking</h3>
             <div className="space-y-4 overflow-y-auto max-h-[300px] custom-scrollbar pr-2">
