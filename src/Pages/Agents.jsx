@@ -34,21 +34,23 @@ function Agents() {
     return () => clearInterval(interval);
   }, []);
 
-  // Data processing: Filter out CM360 and handle search
+  // Updated logic to filter out "CM360" AND agents with 0 monthly sales
   const displayAgents = useMemo(() => {
     return agents
       .filter((a) => {
         const name = a.agent || "";
+        const mSales = Number(a.monthSales) || 0;
+        
         const isNotCM360 = name.toUpperCase() !== "CM360";
         const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase());
-        return isNotCM360 && matchesSearch;
+        const hasMonthlySales = mSales > 0; // Filter condition
+
+        return isNotCM360 && matchesSearch && hasMonthlySales;
       })
       .sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0));
   }, [agents, searchTerm]);
 
   const stats = useMemo(() => {
-    // We keep totalToday calculation in case you need it for logic, 
-    // but we won't display the card in the UI.
     const totalToday = displayAgents.reduce((sum, a) => sum + (Number(a.todaySales) || 0), 0);
     const topPerformer = displayAgents.length > 0 ? displayAgents[0].agent : "N/A";
     
@@ -81,7 +83,7 @@ function Agents() {
               <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
               <input 
                 type="text" 
-                placeholder="Search Agent..." 
+                placeholder="Search Active Agents..." 
                 className="pl-12 pr-6 py-3 bg-slate-900/50 border border-slate-800 rounded-2xl focus:ring-2 focus:ring-blue-500/50 outline-none w-full md:w-80 transition-all text-white backdrop-blur-sm"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -96,7 +98,7 @@ function Agents() {
           </div>
         </header>
 
-        {/* Stats Grid - Removed Today's Sales Card */}
+        {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
           <StatCard label="Active Agents" value={displayAgents.length} icon={<FiUsers />} color="from-blue-600 to-cyan-500" />
           <StatCard label="Today MVP" value={stats.topPerformer} icon={<FiAward />} color="from-violet-600 to-fuchsia-500" />
@@ -107,7 +109,7 @@ function Agents() {
           <div className="lg:col-span-2 bg-slate-900/40 border border-slate-800/50 p-6 rounded-3xl backdrop-blur-xl">
             <h3 className="text-lg font-semibold text-white mb-6 flex items-center gap-2">
               <div className="w-1 h-4 bg-blue-500 rounded-full"></div>
-              Performance Leaders
+              Performance Leaders (Top 6)
             </h3>
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">

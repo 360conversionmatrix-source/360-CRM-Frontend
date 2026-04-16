@@ -3,11 +3,11 @@ import axios from "axios";
 import img from "../../public/final.png";
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, ComposedChart, PieChart, Pie, Cell 
+  AreaChart, Area, ComposedChart, Cell, PieChart, Pie 
 } from "recharts";
 import { 
   FiLock, FiUser, FiBarChart2, FiUsers, FiLayers, 
-  FiChevronDown, FiChevronUp, FiLogOut, FiTrendingUp, FiSearch, FiX, FiRefreshCw, FiCalendar 
+  FiChevronDown, FiChevronUp, FiLogOut, FiTrendingUp, FiSearch, FiRefreshCw, FiCalendar 
 } from "react-icons/fi";
 
 const apiUrl = "https://sales-crm-8og5.onrender.com";
@@ -26,7 +26,6 @@ function Admin() {
   const [searchResult, setSearchResult] = useState(null);
   const [openSection, setOpenSection] = useState("summary");
 
-  // Filter States: Initialize with current month/year
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -34,7 +33,7 @@ function Admin() {
   const DAILY_GOAL = 50; 
   const MONTHLY_GOAL = 1000;
 
-  // Memoized Chart Data
+  // Memoized Chart Data - Campaign remains as provided
   const campaignChartData = useMemo(() => 
     [...stats]
       .sort((a, b) => (Number(b.monthlySales) || 0) - (Number(a.monthlySales) || 0))
@@ -42,18 +41,24 @@ function Admin() {
       .map(item => ({ name: item.campaign, sales: Number(item.monthlySales) || 0 })), 
   [stats]);
 
+  // UPDATED AGENT LOGIC: CM360 is no longer filtered out
+  const filteredAgents = useMemo(() => {
+    return agents.filter(a => {
+      const monthlySales = Number(a.monthSales) || 0;
+      // We only filter out agents with 0 sales; CM360 will now show up.
+      return monthlySales > 0;
+    }).sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0));
+  }, [agents]);
+
   const agentChartData = useMemo(() => 
-    [...agents]
-      .sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0))
+    filteredAgents
       .slice(0, 10)
       .map(item => ({ name: item.agent?.split(' ')[0], sales: Number(item.todaySales) || 0 })), 
-  [agents]);
+  [filteredAgents]);
 
-  // Main Fetch Logic: Hits all 3 routes with selected month/year
   const fetchDashboardData = () => {
     const params = { month: selectedMonth, year: selectedYear };
 
-    // 1. Agent & Global Totals
     axios.get(`${apiUrl}/Agent-data`, { params })
       .then(res => {
         if (res.data.agents && res.data.totals) {
@@ -64,34 +69,27 @@ function Admin() {
       })
       .catch(err => console.error("Agent data fetch error:", err));
 
-    // 2. Campaign Data
     axios.get(`${apiUrl}/campaign-data`, { params })
       .then(res => setStats(res.data.stats || []))
       .catch(err => console.error("Campaign data fetch error:", err));
 
-    // 3. Detailed Client Data (filtered list)
     axios.get(`${apiUrl}/admin-data`, { 
       headers: { "x-admin-password": password },
       params 
     })
     .then(res => {
-      // res.data is an array if no search number is provided
       if (Array.isArray(res.data)) setData(res.data);
     })
     .catch(err => console.error("Admin data fetch error:", err));
   };
 
   useEffect(() => {
-    if (authenticated) {
-      fetchDashboardData();
-    }
+    if (authenticated) fetchDashboardData();
   }, [authenticated, selectedMonth, selectedYear]);
 
   useEffect(() => {
     let interval;
-    if (authenticated) {
-      interval = setInterval(fetchDashboardData, 60000);
-    }
+    if (authenticated) interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
   }, [authenticated, selectedMonth, selectedYear]);
 
@@ -108,9 +106,7 @@ function Admin() {
       setData(result);
       setAuthenticated(true);
       setError("");
-    } catch (err) {
-      setError("Server connection failed.");
-    }
+    } catch (err) { setError("Server connection failed."); }
   };
 
   const handleSearchLead = async () => {
@@ -130,9 +126,7 @@ function Admin() {
     } catch (err) { setError("Search failed."); }
   };
 
-  const toggleSection = (section) => {
-    setOpenSection(openSection === section ? null : section);
-  };
+  const toggleSection = (section) => setOpenSection(openSection === section ? null : section);
 
   if (!authenticated) {
     return (
@@ -153,9 +147,7 @@ function Admin() {
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
           />
-          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20">
-            Sign In
-          </button>
+          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20">Sign In</button>
           {error && <p className="text-red-500 text-sm mt-4 text-center font-medium">{error}</p>}
         </div>
       </div>
@@ -203,67 +195,34 @@ function Admin() {
         </header>
 
         <div className="p-8 space-y-8 max-w-7xl mx-auto">
-          
-          {/* GLOBAL DATE & YEAR FILTER BAR */}
+          {/* Global Filter Bar */}
           <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center gap-6 shadow-xl">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <FiCalendar className="text-blue-500" />
-              </div>
+              <div className="p-2 bg-blue-500/10 rounded-lg"><FiCalendar className="text-blue-500" /></div>
               <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filter Period</span>
             </div>
-            
             <div className="flex items-center gap-3">
-              <select 
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer"
-              >
+              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer">
                 {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, idx) => (
                   <option key={m} value={idx}>{m}</option>
                 ))}
               </select>
-
-              <select 
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer"
-              >
-                {[2024, 2025, 2026].map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
+              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer">
+                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-
-            <button 
-              onClick={fetchDashboardData}
-              className="ml-auto flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            >
-              <FiRefreshCw />
-              Refresh Data
+            <button onClick={fetchDashboardData} className="ml-auto flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">
+              <FiRefreshCw /> Refresh Data
             </button>
           </div>
 
-          {/* Stat Cards */}
+          {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <StatCard 
-              label="Today's Total Sales" 
-              value={totals.totalShiftSales} 
-              target={DAILY_GOAL}
-              icon={<FiTrendingUp className="text-blue-400" />} 
-              color="#3b82f6" 
-            />
-            <StatCard 
-              label={`${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][selectedMonth]} Sales`} 
-              value={totals.totalMonthSales} 
-              target={MONTHLY_GOAL}
-              icon={<FiBarChart2 className="text-emerald-400" />} 
-              color="#10b981" 
-            />
+            <StatCard label="Today's Total Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp className="text-blue-400" />} color="#3b82f6" />
+            <StatCard label={`${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][selectedMonth]} Sales`} value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 className="text-emerald-400" />} color="#10b981" />
           </div>
 
           <div className="space-y-6">
-            {/* Campaign Performance */}
             <CollapsibleSection title="Campaign Performance" isOpen={openSection === "campaigns"} onToggle={() => toggleSection("campaigns")}>
               <div className="p-2 font-semibold h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -276,32 +235,17 @@ function Admin() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              
               <div className="overflow-x-auto border-t border-slate-800">
                 <table className="w-full text-left">
                   <thead className="bg-slate-900/50 text-slate-500 text-[10px] uppercase font-bold tracking-widest">
-                    <tr>
-                      <th className="px-6 py-4">Rank & Campaign Name</th>
-                      <th className="px-6 py-4 text-center">Shift Sales</th>
-                      <th className="px-6 py-4 text-center">Monthly Sales</th>
-                    </tr>
+                    <tr><th className="px-6 py-4">Rank & Campaign Name</th><th className="px-6 py-4 text-center">Shift Sales</th><th className="px-6 py-4 text-center">Monthly Sales</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
                     {[...stats].sort((a, b) => (Number(b.monthlySales) || 0) - (Number(a.monthlySales) || 0)).map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-800/30 transition group">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-slate-700 w-4">{idx + 1}</span>
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-slate-800 text-slate-400'}`}>
-                              <FiLayers size={14} />
-                            </div>
-                            <span className="font-medium text-slate-200">{row.campaign}</span>
-                          </div>
-                        </td>
+                        <td className="px-6 py-4"><div className="flex items-center gap-3"><span className="text-xs font-bold text-slate-700 w-4">{idx + 1}</span><div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-slate-800 text-slate-400'}`}><FiLayers size={14} /></div><span className="font-medium text-slate-200">{row.campaign}</span></div></td>
                         <td className="px-6 py-4 text-center text-slate-400 font-mono">{row.shiftSales}</td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`px-3 py-1 rounded-lg font-mono font-bold ${idx === 0 ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-300'}`}>{row.monthlySales}</span>
-                        </td>
+                        <td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-lg font-mono font-bold ${idx === 0 ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-300'}`}>{row.monthlySales}</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -309,7 +253,6 @@ function Admin() {
               </div>
             </CollapsibleSection>
 
-            {/* Agent Sales Report */}
             <CollapsibleSection title="Agent Sales Report" isOpen={openSection === "agents"} onToggle={() => toggleSection("agents")}>
               <div className="p-6 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -321,31 +264,29 @@ function Admin() {
                     <Area type="monotone" dataKey="sales" fill="url(#colorSales)" stroke="#10b981" strokeWidth={2} />
                     <defs>
                       <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-
               <div className="overflow-x-auto border-t border-slate-800">
                 <table className="w-full text-left">
                   <thead className="bg-slate-900/50 text-slate-500 text-[10px] uppercase font-bold tracking-widest">
-                    <tr>
-                      <th className="px-6 py-4">Rank & Agent Name</th>
-                      <th className="px-6 py-4 text-center">Today</th>
-                      <th className="px-6 py-4 text-center">This Month</th>
-                    </tr>
+                    <tr><th className="px-6 py-4">Rank & Agent Name</th><th className="px-6 py-4 text-center">Today</th><th className="px-6 py-4 text-center">This Month</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
-                    {[...agents].sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0)).map((a, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/30 transition group">
+                    {filteredAgents.map((a, idx) => (
+                      <tr key={idx} className={`hover:bg-slate-800/30 transition group ${a.agent?.toUpperCase() === 'CM360' ? 'bg-blue-500/5' : ''}`}>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <span className="text-xs font-bold text-slate-700 w-4">{idx + 1}</span>
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' : 'bg-slate-800 text-slate-400'}`}>{a.agent ? a.agent.charAt(0) : "?"}</div>
-                            <span className="font-medium text-slate-200">{a.agent}</span>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' : 'bg-slate-800 text-slate-400'}`}>
+                              {a.agent ? a.agent.charAt(0) : "?"}
+                            </div>
+                            <span className="font-medium text-slate-200">
+                              {a.agent} {a.agent?.toUpperCase() === 'CM360' && <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded ml-1 font-bold">SYSTEM</span>}
+                            </span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-center font-mono font-bold text-emerald-400">{a.todaySales}</td>
@@ -357,7 +298,6 @@ function Admin() {
               </div>
             </CollapsibleSection>
 
-            {/* Client Data Section */}
             <CollapsibleSection title="Detailed Client Data" isOpen={openSection === "clients"} onToggle={() => toggleSection("clients")}>
               <div className="p-4 bg-slate-950 border-b border-slate-800 flex flex-wrap gap-3">
                 <div className="relative flex-1 min-w-[200px]">
@@ -365,9 +305,6 @@ function Admin() {
                   <input type="text" placeholder="Search by Number..." className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-900 border border-slate-800 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={searchNumber} onChange={(e) => setSearchNumber(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchLead()} />
                 </div>
                 <button onClick={handleSearchLead} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-blue-500 transition">Find Lead</button>
-                {searchResult && (
-                  <button onClick={() => { setSearchResult(null); setSearchNumber(""); fetchDashboardData(); }} className="bg-slate-800 text-slate-300 px-4 py-2 rounded-lg hover:bg-red-500/20 hover:text-red-400 transition flex items-center gap-2"><FiX /> Clear Filter</button>
-                )}
               </div>
               <div className="overflow-x-auto">
                 {searchResult ? (
@@ -376,39 +313,24 @@ function Admin() {
                       <tr>{Object.keys(searchResult).map((key) => (<th key={key} className="px-6 py-4 whitespace-nowrap border-b border-slate-800">{key}</th>))}</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
-                      <tr className="bg-blue-500/5 transition">
-                        {Object.values(searchResult).map((val, i) => (<td key={i} className="px-6 py-4 text-sm text-slate-300 whitespace-nowrap">{val}</td>))}
-                      </tr>
+                      <tr className="bg-blue-500/5">{Object.values(searchResult).map((val, i) => (<td key={i} className="px-6 py-4 text-sm text-slate-300 whitespace-nowrap">{val}</td>))}</tr>
                     </tbody>
                   </table>
                 ) : (
                   <div className="p-16 text-center text-slate-600">
                     {data.length > 0 ? (
                       <table className="w-full text-left">
-                         <thead className="bg-slate-900/50 text-slate-500 text-xs uppercase font-semibold">
-                            <tr>
-                              <th className="px-6 py-4 border-b border-slate-800">Timestamp</th>
-                              <th className="px-6 py-4 border-b border-slate-800">Agent</th>
-                              <th className="px-6 py-4 border-b border-slate-800">Campaign</th>
-                              <th className="px-6 py-4 border-b border-slate-800">Number</th>
-                            </tr>
-                         </thead>
-                         <tbody className="divide-y divide-slate-800">
-                            {data.slice(0, 50).map((row, i) => (
-                              <tr key={i} className="hover:bg-slate-800/20">
-                                <td className="px-6 py-4 text-sm">{row.Timestamp}</td>
-                                <td className="px-6 py-4 text-sm">{row.Agent}</td>
-                                <td className="px-6 py-4 text-sm">{row.Campaign}</td>
-                                <td className="px-6 py-4 text-sm font-mono">{row.Number}</td>
-                              </tr>
-                            ))}
-                         </tbody>
+                        <thead className="bg-slate-900/50 text-slate-500 text-xs uppercase font-semibold">
+                          <tr><th className="px-6 py-4 border-b border-slate-800">Timestamp</th><th className="px-6 py-4 border-b border-slate-800">Agent</th><th className="px-6 py-4 border-b border-slate-800">Campaign</th><th className="px-6 py-4 border-b border-slate-800">Number</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800">
+                          {data.slice(0, 50).map((row, i) => (
+                            <tr key={i} className="hover:bg-slate-800/20"><td className="px-6 py-4 text-sm">{row.Timestamp}</td><td className="px-6 py-4 text-sm">{row.Agent}</td><td className="px-6 py-4 text-sm">{row.Campaign}</td><td className="px-6 py-4 text-sm font-mono">{row.Number}</td></tr>
+                          ))}
+                        </tbody>
                       </table>
                     ) : (
-                      <>
-                        <FiUser className="mx-auto text-4xl mb-2 opacity-20" />
-                        <p>No records found for the selected month.</p>
-                      </>
+                      <><FiUser className="mx-auto text-4xl mb-2 opacity-20" /><p>No records found for the selected month.</p></>
                     )}
                   </div>
                 )}
@@ -421,7 +343,6 @@ function Admin() {
   );
 }
 
-// NavItem, StatCard, CollapsibleSection remain same for UI consistency
 const NavItem = ({ icon, label, active, onClick }) => (
   <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : "text-slate-500 hover:bg-slate-900 hover:text-white"}`}>
     {icon} <span className="text-sm font-medium">{label}</span>
@@ -431,29 +352,22 @@ const NavItem = ({ icon, label, active, onClick }) => (
 const StatCard = ({ label, value, target, icon, color }) => {
   const numValue = Number(value) || 0;
   const percentage = Math.min((numValue / target) * 100, 100);
-  const chartData = [{ name: "Progress", value: percentage }, { name: "Remainder", value: 100 - percentage }];
-
   return (
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 flex items-center justify-between group hover:border-slate-700 transition-colors">
       <div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="p-1.5 bg-slate-800 rounded-lg text-xs">{icon}</div>
-          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{label}</p>
-        </div>
+        <div className="flex items-center gap-2 mb-1"><div className="p-1.5 bg-slate-800 rounded-lg text-xs">{icon}</div><p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{label}</p></div>
         <h3 className="text-4xl font-black text-white">{value}</h3>
         <p className="text-[10px] text-slate-600 mt-1 uppercase font-bold tracking-tighter">Goal: {target}</p>
       </div>
       <div className="relative w-24 h-24">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={chartData} cx="50%" cy="50%" innerRadius={30} outerRadius={40} startAngle={90} endAngle={-270} dataKey="value" stroke="none" animationDuration={1500}>
+            <Pie data={[{v: percentage}, {v: 100-percentage}]} cx="50%" cy="50%" innerRadius={30} outerRadius={40} startAngle={90} endAngle={-270} dataKey="v" stroke="none">
               <Cell fill={color} /><Cell fill="#1e293b" />
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-[10px] font-black text-white">{Math.round(percentage)}%</span>
-        </div>
+        <div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] font-black text-white">{Math.round(percentage)}%</span></div>
       </div>
     </div>
   );
@@ -462,10 +376,7 @@ const StatCard = ({ label, value, target, icon, color }) => {
 const CollapsibleSection = ({ title, children, isOpen, onToggle }) => (
   <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
     <button onClick={onToggle} className="w-full px-6 py-5 flex justify-between items-center hover:bg-slate-800 transition text-white">
-      <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2">
-        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-        {title}
-      </h3>
+      <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>{title}</h3>
       {isOpen ? <FiChevronUp className="text-slate-500" /> : <FiChevronDown className="text-slate-500" />}
     </button>
     {isOpen && <div className="border-t border-slate-800 animate-in slide-in-from-top-2 duration-300">{children}</div>}
