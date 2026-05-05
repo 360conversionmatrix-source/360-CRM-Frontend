@@ -1,13 +1,14 @@
 import { useEffect, useState, useMemo } from "react";
 import axios from "axios";
-import img from "../../public/final.png";
+import darkImg from "../../public/final.png";    // Logo for Dark Theme
+import lightImg from "../../public/Tab_logo.png"; // Logo for Light Theme
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   AreaChart, Area, ComposedChart, Cell, PieChart, Pie 
 } from "recharts";
 import { 
   FiLock, FiUser, FiBarChart2, FiUsers, FiLayers, 
-  FiChevronDown, FiChevronUp, FiLogOut, FiTrendingUp, FiSearch, FiRefreshCw, FiCalendar 
+  FiChevronDown, FiChevronUp, FiLogOut, FiTrendingUp, FiSearch, FiRefreshCw, FiCalendar, FiSun, FiMoon 
 } from "react-icons/fi";
 
 const apiUrl = "https://sales-crm-8og5.onrender.com";
@@ -17,11 +18,11 @@ function Admin() {
   const [data, setData] = useState([]);
   const [error, setError] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [totals, setTotals] = useState({ totalShiftSales: 0, totalMonthSales: 0 });
   const [agents, setAgents] = useState([]);
   const [stats, setStats] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(new Date());
-  
   const [searchNumber, setSearchNumber] = useState("");
   const [searchResult, setSearchResult] = useState(null);
   const [openSection, setOpenSection] = useState("summary");
@@ -33,7 +34,30 @@ function Admin() {
   const DAILY_GOAL = 50; 
   const MONTHLY_GOAL = 1000;
 
-  // Memoized Chart Data - Campaign remains as provided
+  // --- Theme Logic ---
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem("theme");
+    return saved ? saved === "dark" : true;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
+
+  const activeLogo = isDark ? darkImg : lightImg;
+  const bgColor = isDark ? "bg-[#020617]" : "bg-slate-50";
+  const textColor = isDark ? "text-slate-300" : "text-slate-600";
+  const cardClass = isDark ? "bg-slate-900 border-slate-800" : "bg-white border-slate-200 shadow-sm";
+  const chartGridColor = isDark ? "#1e293b" : "#e2e8f0";
+  const chartLabelColor = isDark ? "#94a3b8" : "#64748b";
+
+  // --- Memoized Data ---
   const campaignChartData = useMemo(() => 
     [...stats]
       .sort((a, b) => (Number(b.monthlySales) || 0) - (Number(a.monthlySales) || 0))
@@ -41,13 +65,9 @@ function Admin() {
       .map(item => ({ name: item.campaign, sales: Number(item.monthlySales) || 0 })), 
   [stats]);
 
-  // UPDATED AGENT LOGIC: CM360 is no longer filtered out
   const filteredAgents = useMemo(() => {
-    return agents.filter(a => {
-      const monthlySales = Number(a.monthSales) || 0;
-      // We only filter out agents with 0 sales; CM360 will now show up.
-      return monthlySales > 0;
-    }).sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0));
+    return agents.filter(a => (Number(a.monthSales) || 0) > 0)
+      .sort((a, b) => (Number(b.todaySales) || 0) - (Number(a.todaySales) || 0));
   }, [agents]);
 
   const agentChartData = useMemo(() => 
@@ -56,57 +76,40 @@ function Admin() {
       .map(item => ({ name: item.agent?.split(' ')[0], sales: Number(item.todaySales) || 0 })), 
   [filteredAgents]);
 
+  // --- API Calls ---
   const fetchDashboardData = () => {
+    setLoading(true);
     const params = { month: selectedMonth, year: selectedYear };
 
-    axios.get(`${apiUrl}/Agent-data`, { params })
-      .then(res => {
-        if (res.data.agents && res.data.totals) {
-          setAgents(res.data.agents);
-          setTotals(res.data.totals);
-        }
-        setLastUpdated(new Date());
-      })
-      .catch(err => console.error("Agent data fetch error:", err));
-
-    axios.get(`${apiUrl}/campaign-data`, { params })
-      .then(res => setStats(res.data.stats || []))
-      .catch(err => console.error("Campaign data fetch error:", err));
-
-    axios.get(`${apiUrl}/admin-data`, { 
-      headers: { "x-admin-password": password },
-      params 
-    })
-    .then(res => {
-      if (Array.isArray(res.data)) setData(res.data);
-    })
-    .catch(err => console.error("Admin data fetch error:", err));
+    Promise.all([
+      axios.get(`${apiUrl}/Agent-data`, { params }),
+      axios.get(`${apiUrl}/campaign-data`, { params }),
+      axios.get(`${apiUrl}/admin-data`, { headers: { "x-admin-password": password }, params })
+    ]).then(([agentRes, campaignRes, adminRes]) => {
+      if (agentRes.data.agents) setAgents(agentRes.data.agents);
+      if (agentRes.data.totals) setTotals(agentRes.data.totals);
+      setStats(campaignRes.data.stats || []);
+      if (Array.isArray(adminRes.data)) setData(adminRes.data);
+      setLastUpdated(new Date());
+      setLoading(false);
+    }).catch(err => {
+      console.error(err);
+      setLoading(false);
+    });
   };
 
-  useEffect(() => {
-    if (authenticated) fetchDashboardData();
-  }, [authenticated, selectedMonth, selectedYear]);
-
-  useEffect(() => {
-    let interval;
-    if (authenticated) interval = setInterval(fetchDashboardData, 60000);
-    return () => clearInterval(interval);
-  }, [authenticated, selectedMonth, selectedYear]);
+  useEffect(() => { if (authenticated) fetchDashboardData(); }, [authenticated, selectedMonth, selectedYear]);
 
   const handleLogin = async () => {
     try {
       const response = await fetch(`${apiUrl}/admin-data`, {
         headers: { "x-admin-password": password },
       });
-      if (response.status === 403) {
-        setError("Invalid password. Access denied.");
-        return;
-      }
+      if (response.status === 403) { setError("Invalid password."); return; }
       const result = await response.json();
       setData(result);
       setAuthenticated(true);
-      setError("");
-    } catch (err) { setError("Server connection failed."); }
+    } catch (err) { setError("Server error."); }
   };
 
   const handleSearchLead = async () => {
@@ -115,271 +118,243 @@ function Admin() {
       const response = await fetch(`${apiUrl}/admin-data?number=${searchNumber}`, {
         headers: { "x-admin-password": password },
       });
-      if (response.status === 404) {
-        setError("Lead not found.");
-        setSearchResult(null);
-        return;
-      }
+      if (response.status === 404) { setSearchResult(null); return; }
       const lead = await response.json();
       setSearchResult(lead);
-      setError("");
     } catch (err) { setError("Search failed."); }
   };
 
-  const toggleSection = (section) => setOpenSection(openSection === section ? null : section);
-
   if (!authenticated) {
     return (
-      <div className="min-h-screen bg-[#020617] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-8">
+      <div className={`min-h-screen ${bgColor} flex items-center justify-center p-6`}>
+        <div className={`max-w-md w-full border rounded-3xl p-8 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
           <div className="text-center mb-8">
-            <div className="bg-blue-500/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/20">
-              <FiLock className="text-blue-500 text-2xl" />
-            </div>
-            <h1 className="text-2xl font-bold text-white">Admin Portal</h1>
-            <p className="text-slate-500 text-sm">Please enter your credentials to continue</p>
+            <FiLock className="mx-auto text-blue-500 text-4xl mb-4" />
+            <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Admin Login</h1>
           </div>
           <input
             type="password"
             placeholder="Password"
-            className="w-full px-4 py-3 bg-slate-950 rounded-xl border border-slate-800 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all mb-4"
+            className={`w-full px-4 py-3 rounded-xl border outline-none mb-4 ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
           />
-          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/20">Sign In</button>
-          {error && <p className="text-red-500 text-sm mt-4 text-center font-medium">{error}</p>}
+          <button onClick={handleLogin} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all">Sign In</button>
+          {error && <p className="text-red-500 text-sm mt-4 text-center">{error}</p>}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#020617] text-slate-300 flex">
+    <div className={`min-h-screen ${bgColor} ${textColor} flex transition-colors duration-500 relative`}>
+      
+      {/* Theme Toggle */}
+      <button
+        onClick={() => setIsDark(!isDark)}
+        className={`fixed top-6 right-6 z-50 w-12 h-12 rounded-2xl flex items-center justify-center transition-all border ${
+          isDark ? "bg-slate-900 border-slate-800 text-yellow-400" : "bg-white border-slate-200 text-slate-700 shadow-lg"
+        }`}
+      >
+        {isDark ? <FiSun size={20} /> : <FiMoon size={20} />}
+      </button>
+
       {/* Sidebar */}
-      <aside className="w-64 bg-slate-950 border-r border-slate-800 hidden md:flex flex-col">
-        <div className="p-6 text-xl font-bold flex items-center gap-2 text-white">
-          <img src={img} alt="CRM Logo" className="w-15 h-15 rounded-lg shadow-lg" />
-          CRM Admin
+      <aside className={`w-64 border-r hidden md:flex flex-col sticky top-0 h-screen ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-white border-slate-200 shadow-xl'}`}>
+        <div className={`p-6 text-xl font-bold flex items-center gap-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+          <img src={activeLogo} alt="Logo" className="w-10 h-10 rounded-lg shadow-lg" />
+          360-CRM
         </div>
-        <nav className="flex-1 px-4 space-y-2">
-          <NavItem icon={<FiBarChart2 />} label="Overview" active={openSection === 'summary'} onClick={() => setOpenSection('summary')} />
-          <NavItem icon={<FiLayers />} label="Campaigns" active={openSection === 'campaigns'} onClick={() => setOpenSection('campaigns')} />
-          <NavItem icon={<FiUsers />} label="Agents" active={openSection === 'agents'} onClick={() => setOpenSection('agents')} />
-          <NavItem icon={<FiUser />} label="Client Data" active={openSection === 'clients'} onClick={() => setOpenSection('clients')} />
+        <nav className="flex-1 px-4 space-y-2 mt-4">
+          <NavItem isDark={isDark} icon={<FiBarChart2 />} label="Overview" active={openSection === 'summary'} onClick={() => setOpenSection('summary')} />
+          <NavItem isDark={isDark} icon={<FiLayers />} label="Campaigns" active={openSection === 'campaigns'} onClick={() => setOpenSection('campaigns')} />
+          <NavItem isDark={isDark} icon={<FiUsers />} label="Agents" active={openSection === 'agents'} onClick={() => setOpenSection('agents')} />
+          <NavItem isDark={isDark} icon={<FiUser />} label="Client Data" active={openSection === 'clients'} onClick={() => setOpenSection('clients')} />
         </nav>
-        <div className="p-6 border-t border-slate-900">
-          <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-slate-500 hover:text-white transition w-full font-medium">
-            <FiLogOut /> Logout
-          </button>
-        </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
-        <header className="bg-slate-950/50 backdrop-blur-md border-b border-slate-800 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
-          <div className="flex items-center gap-1 sm:hidden">
-            <img src={img} alt="CRM Logo" className="w-15 h-15 rounded-lg shadow-lg" />
-            <span>CRM</span>
+        <header className={`backdrop-blur-md border-b px-8 py-5 sticky top-0 z-10 flex justify-between items-center ${isDark ? 'bg-slate-950/50 border-slate-800' : 'bg-white/80 border-slate-200 shadow-sm'}`}>
+          <div>
+            <h2 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>Dashboard Overview</h2>
+            <span className="text-xs text-slate-500 font-mono uppercase">Sync: {lastUpdated.toLocaleTimeString()}</span>
           </div>
-          <div className="flex flex-col">
-            <h2 className="hidden sm:text-2xl sm:block font-semibold text-white">Dashboard Overview</h2>
-            <span className="hidden text-[13px] text-slate-500 sm:flex items-center gap-1 uppercase tracking-wider">
-              <FiRefreshCw className="animate-spin" /> Last sync: {lastUpdated.toLocaleTimeString()}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1 rounded-full font-bold text-xs uppercase tracking-tighter">System Live</span>
-            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold border border-blue-400/20 shadow-lg shadow-blue-900/20">A</div>
+          <div className="flex items-center gap-4 mr-16">
+            <span className="bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-3 py-1 rounded-full text-[10px] font-black uppercase">Live</span>
           </div>
         </header>
 
         <div className="p-8 space-y-8 max-w-7xl mx-auto">
-          {/* Global Filter Bar */}
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-wrap items-center gap-6 shadow-xl">
+          {/* Filters */}
+          <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center gap-6 shadow-xl transition-all`}>
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-lg"><FiCalendar className="text-blue-500" /></div>
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filter Period</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer">
-                {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((m, idx) => (
-                  <option key={m} value={idx}>{m}</option>
-                ))}
+              <FiCalendar className="text-blue-500" />
+              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
+                {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, idx) => <option key={m} value={idx}>{m}</option>)}
               </select>
-              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer">
+              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
                 {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
             </div>
-            <button onClick={fetchDashboardData} className="ml-auto flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">
-              <FiRefreshCw /> Refresh Data
+            <button onClick={fetchDashboardData} className="ml-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">
+              <FiRefreshCw className={loading ? "animate-spin" : ""} /> Refresh
             </button>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <StatCard label="Today's Total Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp className="text-blue-400" />} color="#3b82f6" />
-            <StatCard label={`${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][selectedMonth]} Sales`} value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 className="text-emerald-400" />} color="#10b981" />
-          </div>
+          {loading ? (
+            <div className="space-y-8 animate-pulse">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div></div>
+              <div className={`h-96 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
+            </div>
+          ) : (
+            <>
+              {/* Stats Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <StatCard isDark={isDark} label="Shift Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp />} color="#3b82f6" />
+                <StatCard isDark={isDark} label="Monthly Sales" value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 />} color="#10b981" />
+              </div>
 
-          <div className="space-y-6">
-            <CollapsibleSection title="Campaign Performance" isOpen={openSection === "campaigns"} onToggle={() => toggleSection("campaigns")}>
-              <div className="p-2 font-semibold h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={campaignChartData} margin={{ left: 40, right: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" tick={{fill: '#94a3b8', fontSize: 10}} width={80} />
-                    <Tooltip cursor={{fill: '#1e293b'}} contentStyle={{backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px'}} />
-                    <Bar dataKey="sales" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={20} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="overflow-x-auto border-t border-slate-800">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-900/50 text-slate-500 text-[10px] uppercase font-bold tracking-widest">
-                    <tr><th className="px-6 py-4">Rank & Campaign Name</th><th className="px-6 py-4 text-center">Shift Sales</th><th className="px-6 py-4 text-center">Monthly Sales</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {[...stats].sort((a, b) => (Number(b.monthlySales) || 0) - (Number(a.monthlySales) || 0)).map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/30 transition group">
-                        <td className="px-6 py-4"><div className="flex items-center gap-3"><span className="text-xs font-bold text-slate-700 w-4">{idx + 1}</span><div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-slate-800 text-slate-400'}`}><FiLayers size={14} /></div><span className="font-medium text-slate-200">{row.campaign}</span></div></td>
-                        <td className="px-6 py-4 text-center text-slate-400 font-mono">{row.shiftSales}</td>
-                        <td className="px-6 py-4 text-center"><span className={`px-3 py-1 rounded-lg font-mono font-bold ${idx === 0 ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-800 text-slate-300'}`}>{row.monthlySales}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CollapsibleSection>
+              {/* Sections Container */}
+              <div className="space-y-6">
+                <CollapsibleSection isDark={isDark} title="Campaign Performance" isOpen={openSection === "campaigns"} onToggle={() => setOpenSection(openSection === "campaigns" ? null : "campaigns")}>
+                  <div className="p-6 h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart layout="vertical" data={campaignChartData}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={chartGridColor} />
+                        <XAxis type="number" hide />
+                        <YAxis dataKey="name" type="category" tick={{fill: chartLabelColor, fontSize: 10}} width={80} />
+                        <Tooltip cursor={{fill: isDark ? '#1e293b' : '#f1f5f9'}} contentStyle={{backgroundColor: isDark ? '#0f172a' : '#fff', border: 'none', borderRadius: '12px'}} />
+                        <Bar dataKey="sales" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CollapsibleSection>
 
-            <CollapsibleSection title="Agent Sales Report" isOpen={openSection === "agents"} onToggle={() => toggleSection("agents")}>
-              <div className="p-6 h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={agentChartData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="name" tick={{fill: '#94a3b8', fontSize: 10}} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <Tooltip contentStyle={{backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px'}} />
-                    <Area type="monotone" dataKey="sales" fill="url(#colorSales)" stroke="#10b981" strokeWidth={2} />
-                    <defs>
-                      <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="overflow-x-auto border-t border-slate-800">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-900/50 text-slate-500 text-[10px] uppercase font-bold tracking-widest">
-                    <tr><th className="px-6 py-4">Rank & Agent Name</th><th className="px-6 py-4 text-center">Today</th><th className="px-6 py-4 text-center">This Month</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {filteredAgents.map((a, idx) => (
-                      <tr key={idx} className={`hover:bg-slate-800/30 transition group ${a.agent?.toUpperCase() === 'CM360' ? 'bg-blue-500/5' : ''}`}>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-slate-700 w-4">{idx + 1}</span>
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' : 'bg-slate-800 text-slate-400'}`}>
-                              {a.agent ? a.agent.charAt(0) : "?"}
-                            </div>
-                            <span className="font-medium text-slate-200">
-                              {a.agent} {a.agent?.toUpperCase() === 'CM360' && <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded ml-1 font-bold">SYSTEM</span>}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center font-mono font-bold text-emerald-400">{a.todaySales}</td>
-                        <td className="px-6 py-4 text-center text-slate-400 font-mono">{a.monthSales}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CollapsibleSection>
+                {/* --- AGENT SALES REPORT (RE-ADDED FULLY) --- */}
+                <CollapsibleSection isDark={isDark} title="Agent Sales Report" isOpen={openSection === "agents"} onToggle={() => setOpenSection(openSection === "agents" ? null : "agents")}>
+                  <div className="p-6 h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={agentChartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
+                        <XAxis dataKey="name" tick={{fill: chartLabelColor, fontSize: 10}} axisLine={false} tickLine={false} />
+                        <YAxis hide />
+                        <Tooltip contentStyle={{backgroundColor: isDark ? '#0f172a' : '#fff', border: `1px solid ${chartGridColor}`, borderRadius: '8px'}} />
+                        <Area type="monotone" dataKey="sales" fill="url(#colorSalesAdmin)" stroke="#10b981" strokeWidth={2} />
+                        <defs>
+                          <linearGradient id="colorSalesAdmin" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className={`overflow-x-auto border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                    <table className="w-full text-left text-sm">
+                      <thead className={`${isDark ? 'bg-slate-900 text-slate-500' : 'bg-slate-100 text-slate-400'} uppercase text-[10px] font-black`}>
+                        <tr><th className="px-6 py-4">Rank & Agent Name</th><th className="px-6 py-4 text-center">Today</th><th className="px-6 py-4 text-right">This Month</th></tr>
+                      </thead>
+                      <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                        {filteredAgents.map((a, idx) => (
+                          <tr key={idx} className={`transition group ${isDark ? 'hover:bg-slate-800/30' : 'hover:bg-blue-50/50'} ${a.agent?.toUpperCase() === 'CM360' ? 'bg-blue-500/5' : ''}`}>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold text-slate-400 w-4">{idx + 1}</span>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' : isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'}`}>
+                                  {a.agent ? a.agent.charAt(0) : "?"}
+                                </div>
+                                <span className={`font-medium ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+                                  {a.agent} {a.agent?.toUpperCase() === 'CM360' && <span className="text-[10px] bg-blue-500/20 text-blue-500 px-1.5 py-0.5 rounded ml-1 font-bold">SYSTEM</span>}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-center font-mono font-bold text-emerald-500">{a.todaySales}</td>
+                            <td className="px-6 py-4 text-right text-slate-400 font-mono">{a.monthSales}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CollapsibleSection>
 
-            <CollapsibleSection title="Detailed Client Data" isOpen={openSection === "clients"} onToggle={() => toggleSection("clients")}>
-              <div className="p-4 bg-slate-950 border-b border-slate-800 flex flex-wrap gap-3">
-                <div className="relative flex-1 min-w-[200px]">
-                  <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <input type="text" placeholder="Search by Number..." className="w-full pl-10 pr-4 py-2 rounded-lg bg-slate-900 border border-slate-800 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={searchNumber} onChange={(e) => setSearchNumber(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearchLead()} />
-                </div>
-                <button onClick={handleSearchLead} className="bg-blue-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-blue-500 transition">Find Lead</button>
-              </div>
-              <div className="overflow-x-auto">
-                {searchResult ? (
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-900/50 text-slate-500 text-xs uppercase font-semibold">
-                      <tr>{Object.keys(searchResult).map((key) => (<th key={key} className="px-6 py-4 whitespace-nowrap border-b border-slate-800">{key}</th>))}</tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800">
-                      <tr className="bg-blue-500/5">{Object.values(searchResult).map((val, i) => (<td key={i} className="px-6 py-4 text-sm text-slate-300 whitespace-nowrap">{val}</td>))}</tr>
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="p-16 text-center text-slate-600">
-                    {data.length > 0 ? (
+                <CollapsibleSection isDark={isDark} title="Detailed Client Data" isOpen={openSection === "clients"} onToggle={() => setOpenSection(openSection === "clients" ? null : "clients")}>
+                  <div className={`p-4 border-b flex gap-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                    <input type="text" placeholder="Search number..." className={`flex-1 px-4 py-2 rounded-xl border outline-none ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200'}`} value={searchNumber} onChange={(e) => setSearchNumber(e.target.value)} />
+                    <button onClick={handleSearchLead} className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold">Search</button>
+                  </div>
+                  <div className="overflow-x-auto min-h-[200px]">
+                    {searchResult ? (
                       <table className="w-full text-left">
-                        <thead className="bg-slate-900/50 text-slate-500 text-xs uppercase font-semibold">
-                          <tr><th className="px-6 py-4 border-b border-slate-800">Timestamp</th><th className="px-6 py-4 border-b border-slate-800">Agent</th><th className="px-6 py-4 border-b border-slate-800">Campaign</th><th className="px-6 py-4 border-b border-slate-800">Number</th></tr>
+                        <thead className={`text-xs uppercase font-semibold ${isDark ? 'bg-slate-900/50 text-slate-500' : 'bg-slate-100 text-slate-400'}`}>
+                          <tr>{Object.keys(searchResult).map((key) => (<th key={key} className="px-6 py-4 whitespace-nowrap">{key}</th>))}</tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800">
-                          {data.slice(0, 50).map((row, i) => (
-                            <tr key={i} className="hover:bg-slate-800/20"><td className="px-6 py-4 text-sm">{row.Timestamp}</td><td className="px-6 py-4 text-sm">{row.Agent}</td><td className="px-6 py-4 text-sm">{row.Campaign}</td><td className="px-6 py-4 text-sm font-mono">{row.Number}</td></tr>
-                          ))}
+                        <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                          <tr className="bg-blue-500/5">{Object.values(searchResult).map((val, i) => (<td key={i} className={`px-6 py-4 text-sm whitespace-nowrap ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{val}</td>))}</tr>
                         </tbody>
                       </table>
                     ) : (
-                      <><FiUser className="mx-auto text-4xl mb-2 opacity-20" /><p>No records found for the selected month.</p></>
+                      <table className="w-full text-left text-sm">
+                        <thead className={`${isDark ? 'bg-slate-900 text-slate-500' : 'bg-slate-100 text-slate-400'} uppercase text-[10px] font-black`}>
+                          <tr><th className="px-6 py-4 text-left">Agent</th><th className="px-6 py-4 text-center">Campaign</th><th className="px-6 py-4 text-right">Number</th></tr>
+                        </thead>
+                        <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                          {data.slice(0, 15).map((row, i) => (
+                            <tr key={i} className="hover:bg-blue-500/5 transition-colors">
+                              <td className="px-6 py-4 font-bold">{row.Agent}</td>
+                              <td className="px-6 py-4 text-center">{row.Campaign}</td>
+                              <td className="px-6 py-4 text-right font-mono text-blue-500 font-bold">{row.Number}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     )}
                   </div>
-                )}
+                </CollapsibleSection>
               </div>
-            </CollapsibleSection>
-          </div>
+            </>
+          )}
         </div>
       </main>
     </div>
   );
 }
 
-const NavItem = ({ icon, label, active, onClick }) => (
-  <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : "text-slate-500 hover:bg-slate-900 hover:text-white"}`}>
-    {icon} <span className="text-sm font-medium">{label}</span>
+// --- Sub-Components ---
+const NavItem = ({ icon, label, active, onClick, isDark }) => (
+  <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : isDark ? "text-slate-500 hover:bg-slate-900 hover:text-white" : "text-slate-500 hover:bg-slate-50 hover:text-blue-600"}`}>
+    <span className="text-lg">{icon}</span> <span className="text-sm">{label}</span>
   </button>
 );
 
-const StatCard = ({ label, value, target, icon, color }) => {
-  const numValue = Number(value) || 0;
-  const percentage = Math.min((numValue / target) * 100, 100);
+const StatCard = ({ label, value, target, icon, color, isDark }) => {
+  const percentage = Math.min((Number(value) / target) * 100, 100);
   return (
-    <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 flex items-center justify-between group hover:border-slate-700 transition-colors">
+    <div className={`p-6 rounded-3xl border flex items-center justify-between transition-all ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xl'}`}>
       <div>
-        <div className="flex items-center gap-2 mb-1"><div className="p-1.5 bg-slate-800 rounded-lg text-xs">{icon}</div><p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{label}</p></div>
-        <h3 className="text-4xl font-black text-white">{value}</h3>
-        <p className="text-[10px] text-slate-600 mt-1 uppercase font-bold tracking-tighter">Goal: {target}</p>
+        <div className="flex items-center gap-2 mb-1"><div className="p-1.5 bg-blue-500/10 rounded-lg text-xs">{icon}</div><p className="text-[10px] text-slate-400 uppercase font-black">{label}</p></div>
+        <h3 className={`text-4xl font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>{value}</h3>
       </div>
-      <div className="relative w-24 h-24">
+      <div className="relative w-20 h-20">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
-            <Pie data={[{v: percentage}, {v: 100-percentage}]} cx="50%" cy="50%" innerRadius={30} outerRadius={40} startAngle={90} endAngle={-270} dataKey="v" stroke="none">
-              <Cell fill={color} /><Cell fill="#1e293b" />
+            <Pie data={[{v: percentage}, {v: 100-percentage}]} cx="50%" cy="50%" innerRadius={25} outerRadius={35} startAngle={90} endAngle={-270} dataKey="v" stroke="none">
+              <Cell fill={color} /><Cell fill={isDark ? "#1e293b" : "#f1f5f9"} />
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        <div className="absolute inset-0 flex items-center justify-center"><span className="text-[10px] font-black text-white">{Math.round(percentage)}%</span></div>
+        <div className="absolute inset-0 flex items-center justify-center font-black text-[10px]">{Math.round(percentage)}%</div>
       </div>
     </div>
   );
 };
 
-const CollapsibleSection = ({ title, children, isOpen, onToggle }) => (
-  <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-    <button onClick={onToggle} className="w-full px-6 py-5 flex justify-between items-center hover:bg-slate-800 transition text-white">
-      <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>{title}</h3>
-      {isOpen ? <FiChevronUp className="text-slate-500" /> : <FiChevronDown className="text-slate-500" />}
+const CollapsibleSection = ({ title, children, isOpen, onToggle, isDark }) => (
+  <div className={`rounded-3xl border overflow-hidden transition-all duration-500 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-xl'}`}>
+    <button onClick={onToggle} className={`w-full px-6 py-5 flex justify-between items-center transition-all ${isDark ? 'hover:bg-slate-800 text-white' : 'hover:bg-slate-50 text-slate-900'}`}>
+      <h3 className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>{title}</h3>
+      {isOpen ? <FiChevronUp className="text-slate-400" /> : <FiChevronDown className="text-slate-400" />}
     </button>
-    {isOpen && <div className="border-t border-slate-800 animate-in slide-in-from-top-2 duration-300">{children}</div>}
+    {isOpen && <div className={`border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>{children}</div>}
   </div>
 );
 
