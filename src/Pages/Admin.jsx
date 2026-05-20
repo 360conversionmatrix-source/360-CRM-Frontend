@@ -226,7 +226,7 @@ function Admin() {
             </div>
           ) : (
             <>
-              {/* Stats Overview Grid - Now safely hosting 3 structural columns for desktop panels */}
+              {/* Stats Overview Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <StatCard isDark={isDark} label="Shift Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp />} color="#3b82f6" />
                 <StatCard isDark={isDark} label="Monthly Sales" value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 />} color="#10b981" />
@@ -343,7 +343,11 @@ const CustomDateRangePicker = ({ value, onChange, isDark }) => {
   const containerRef = useRef(null);
 
   const [baseDate, setBaseDate] = useState(new Date(2026, 4, 1)); 
+  
+  // High-fidelity local states for parsing comprehensive parameters (Time & Year)
   const [tempRange, setTempRange] = useState({ start: value.startDate, end: value.endDate });
+  const [startTime, setStartTime] = useState("12:00 AM");
+  const [endTime, setEndTime] = useState("11:59 PM");
 
   useEffect(() => {
     setTempRange({ start: value.startDate, end: value.endDate });
@@ -367,6 +371,12 @@ const CustomDateRangePicker = ({ value, onChange, isDark }) => {
   const changeBaseMonth = (amount) => {
     const newBase = new Date(baseDate);
     newBase.setMonth(newBase.getMonth() + amount);
+    setBaseDate(newBase);
+  };
+
+  const handleYearChange = (yearValue) => {
+    const newBase = new Date(baseDate);
+    newBase.setFullYear(yearValue);
     setBaseDate(newBase);
   };
 
@@ -418,13 +428,29 @@ const CustomDateRangePicker = ({ value, onChange, isDark }) => {
     return "";
   };
 
+  const parseTimeIntoDate = (baseDateObj, timeString) => {
+    if (!baseDateObj) return null;
+    const finalDate = new Date(baseDateObj);
+    const [time, modifier] = timeString.split(" ");
+    let [hours, minutes] = time.split(":");
+    
+    hours = parseInt(hours, 10);
+    minutes = parseInt(minutes, 10);
+    
+    if (hours === 12) hours = 0;
+    if (modifier === "PM") hours += 12;
+
+    finalDate.setHours(hours, minutes, 0, 0);
+    return finalDate;
+  };
+
   const renderCalendarPanel = (year, month, label) => {
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const cells = getDaysArray(year, month);
 
     return (
       <div className="w-64">
-        <div className="text-center font-bold text-sm text-slate-100 mb-4">{year} &nbsp; {label}</div>
+        <div className="text-center font-bold text-sm text-slate-100 mb-4">{label}</div>
         <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400 mb-2">
           {weekdays.map(d => <div key={d}>{d}</div>)}
         </div>
@@ -460,6 +486,21 @@ const CustomDateRangePicker = ({ value, onChange, isDark }) => {
 
   const monthStrings = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+  // Custom static generation block for 12-hour time dropdown matrices
+  const hourOptions = useMemo(() => {
+    const options = [];
+    const modifiers = ["AM", "PM"];
+    modifiers.forEach(mod => {
+      for (let h = 1; h <= 12; h++) {
+        options.push(`${h}:00 ${mod}`);
+        options.push(`${h}:30 ${mod}`);
+      }
+    });
+    // Ensure accurate layout parsing for edge configuration values natively
+    if (!options.includes("11:59 PM")) options.push("11:59 PM");
+    return options;
+  }, []);
+
   return (
     <div className="relative" ref={containerRef}>
       <button 
@@ -469,37 +510,75 @@ const CustomDateRangePicker = ({ value, onChange, isDark }) => {
         }`}
       >
         <FiCalendar className="text-blue-500 text-base" />
-        <span className="font-mono">{formatDateLabel(value.startDate)} 12:00 AM</span>
+        <span className="font-mono">{formatDateLabel(value.startDate)} {startTime}</span>
         <span className="text-slate-500">&gt;</span>
-        <span className="font-mono">{formatDateLabel(value.endDate)} 11:59 PM</span>
+        <span className="font-mono">{formatDateLabel(value.endDate)} {endTime}</span>
         <FiChevronDown className={`ml-2 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-3 z-50 bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl p-6 flex flex-col gap-6 w-[560px]">
+        <div className="absolute left-0 mt-3 z-50 bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl p-6 flex flex-col gap-6 w-[580px]">
+          {/* Header Controls with Integrated Year Selector Dropdown */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <div className="flex items-center gap-2">
-              <button onClick={() => changeBaseMonth(-1)} className="text-slate-400 hover:text-white p-1">&lt;&lt;</button>
-              <button onClick={() => changeBaseMonth(-1)} className="text-slate-400 hover:text-white p-1">&lt;</button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => changeBaseMonth(-1)} className="text-slate-400 hover:text-white px-2 py-1 text-xs font-bold transition">&lt; Prev</button>
             </div>
-            <span className="text-xs font-mono text-slate-400">Select Custom Frame Timeline</span>
+            
             <div className="flex items-center gap-2">
-              <button onClick={() => changeBaseMonth(1)} className="text-slate-400 hover:text-white p-1">&gt;</button>
-              <button onClick={() => changeBaseMonth(1)} className="text-slate-400 hover:text-white p-1">&gt;&gt;</button>
+              <span className="text-xs font-mono text-slate-400">Year:</span>
+              <select 
+                value={leftYear} 
+                onChange={(e) => handleYearChange(parseInt(e.target.value, 10))}
+                className="bg-slate-900 border border-slate-800 text-slate-100 rounded-lg px-2 py-1 text-xs outline-none font-mono font-bold"
+              >
+                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button onClick={() => changeBaseMonth(1)} className="text-slate-400 hover:text-white px-2 py-1 text-xs font-bold transition">Next &gt;</button>
             </div>
           </div>
 
-          <div className="flex gap-8 justify-between">
-            {renderCalendarPanel(leftYear, leftMonth, monthStrings[leftMonth])}
-            {renderCalendarPanel(rightYear, rightMonth, monthStrings[rightMonth])}
+          {/* Calendars View Matrix Panel */}
+          <div className="flex gap-6 justify-between">
+            {renderCalendarPanel(leftYear, leftMonth, `${monthStrings[leftMonth]} ${leftYear}`)}
+            {renderCalendarPanel(rightYear, rightMonth, `${monthStrings[rightMonth]} ${rightYear}`)}
           </div>
 
+          {/* Dynamic Interactive Time Config Layer Segment */}
+          <div className="grid grid-cols-2 gap-4 bg-slate-900/50 border border-slate-800/80 p-3 rounded-xl">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-black tracking-wider text-slate-400">Start Boundary Time</label>
+              <select 
+                value={startTime} 
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-300 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-blue-500 transition"
+              >
+                {hourOptions.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-black tracking-wider text-slate-400">End Boundary Time</label>
+              <select 
+                value={endTime} 
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-800 text-slate-300 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:border-blue-500 transition"
+              >
+                {hourOptions.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Action Footer Button Triggers */}
           <div className="flex justify-end gap-3 border-t border-slate-800 pt-4 text-xs font-bold">
             <button onClick={() => setTempRange({ start: null, end: null })} className="text-slate-400 hover:text-white px-4 py-2 transition">Clear</button>
             <button 
               onClick={() => {
                 if (tempRange.start && tempRange.end) {
-                  onChange({ startDate: tempRange.start, endDate: tempRange.end });
+                  const calculatedStart = parseTimeIntoDate(tempRange.start, startTime);
+                  const calculatedEnd = parseTimeIntoDate(tempRange.end, endTime);
+                  onChange({ startDate: calculatedStart, endDate: calculatedEnd });
                   setIsOpen(false);
                 }
               }}
