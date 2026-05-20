@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import axios from "axios";
 import darkImg from "../../public/final.png";    // Logo for Dark Theme
 import lightImg from "../../public/Tab_logo.png"; // Logo for Light Theme
@@ -19,7 +19,9 @@ function Admin() {
   const [error, setError] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [totals, setTotals] = useState({ totalShiftSales: 0, totalMonthSales: 0 });
+  
+  // Track separate totals for full month context and custom selected context
+  const [totals, setTotals] = useState({ totalShiftSales: 0, totalMonthSales: 0, totalRangeSales: 0 });
   const [agents, setAgents] = useState([]);
   const [stats, setStats] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -28,11 +30,17 @@ function Admin() {
   const [openSection, setOpenSection] = useState("summary");
 
   const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const yesterday = new Date();
+  yesterday.setDate(now.getDate() - 1);
+
+  const [dateRange, setDateRange] = useState({
+    startDate: yesterday,
+    endDate: now
+  });
 
   const DAILY_GOAL = 50; 
   const MONTHLY_GOAL = 1000;
+  const RANGE_GOAL = 500;
 
   // --- Theme Logic ---
   const [isDark, setIsDark] = useState(() => {
@@ -79,7 +87,17 @@ function Admin() {
   // --- API Calls ---
   const fetchDashboardData = () => {
     setLoading(true);
-    const params = { month: selectedMonth, year: selectedYear };
+    
+    // Extrapolate targeted static parameters alongside active date strings
+    const startStr = dateRange.startDate.toISOString().split('T')[0];
+    const endStr = dateRange.endDate.toISOString().split('T')[0];
+    
+    const params = { 
+      startDate: startStr, 
+      endDate: endStr,
+      month: dateRange.startDate.getMonth(), // Pass current starting month context to sync structural counters
+      year: dateRange.startDate.getFullYear()
+    };
 
     Promise.all([
       axios.get(`${apiUrl}/Agent-data`, { params }),
@@ -87,7 +105,14 @@ function Admin() {
       axios.get(`${apiUrl}/admin-data`, { headers: { "x-admin-password": password }, params })
     ]).then(([agentRes, campaignRes, adminRes]) => {
       if (agentRes.data.agents) setAgents(agentRes.data.agents);
-      if (agentRes.data.totals) setTotals(agentRes.data.totals);
+      
+      if (agentRes.data.totals) {
+        setTotals({
+          totalShiftSales: agentRes.data.totals.totalShiftSales || 0,
+          totalMonthSales: agentRes.data.totals.totalMonthSales || 0, // Traditional baseline full monthly calculation
+          totalRangeSales: agentRes.data.totals.totalRangeSales || agentRes.data.totals.totalShiftSales || 0 // Custom parsed calculation
+        });
+      }
       setStats(campaignRes.data.stats || []);
       if (Array.isArray(adminRes.data)) setData(adminRes.data);
       setLastUpdated(new Date());
@@ -98,7 +123,7 @@ function Admin() {
     });
   };
 
-  useEffect(() => { if (authenticated) fetchDashboardData(); }, [authenticated, selectedMonth, selectedYear]);
+  useEffect(() => { if (authenticated) fetchDashboardData(); }, [authenticated, dateRange]);
 
   const handleLogin = async () => {
     try {
@@ -186,33 +211,26 @@ function Admin() {
         </header>
 
         <div className="p-8 space-y-8 max-w-7xl mx-auto">
-          {/* Filters */}
-          <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center gap-6 shadow-xl transition-all`}>
-            <div className="flex items-center gap-3">
-              <FiCalendar className="text-blue-500" />
-              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, idx) => <option key={m} value={idx}>{m}</option>)}
-              </select>
-              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
-            <button onClick={fetchDashboardData} className="ml-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">
+          {/* Date Filter Panel */}
+          <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center justify-between gap-6 shadow-xl transition-all`}>
+            <CustomDateRangePicker value={dateRange} onChange={setDateRange} isDark={isDark} />
+            <button onClick={fetchDashboardData} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">
               <FiRefreshCw className={loading ? "animate-spin" : ""} /> Refresh
             </button>
           </div>
 
           {loading ? (
             <div className="space-y-8 animate-pulse">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div></div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6"><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div></div>
               <div className={`h-96 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
             </div>
           ) : (
             <>
-              {/* Stats Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Stats Overview Grid - Now safely hosting 3 structural columns for desktop panels */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <StatCard isDark={isDark} label="Shift Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp />} color="#3b82f6" />
                 <StatCard isDark={isDark} label="Monthly Sales" value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 />} color="#10b981" />
+                <StatCard isDark={isDark} label="Range Sales" value={totals.totalRangeSales} target={RANGE_GOAL} icon={<FiCalendar />} color="#8b5cf6" />
               </div>
 
               {/* Sections Container */}
@@ -231,7 +249,7 @@ function Admin() {
                   </div>
                 </CollapsibleSection>
 
-                {/* --- AGENT SALES REPORT (RE-ADDED FULLY) --- */}
+                {/* --- AGENT SALES REPORT --- */}
                 <CollapsibleSection isDark={isDark} title="Agent Sales Report" isOpen={openSection === "agents"} onToggle={() => setOpenSection(openSection === "agents" ? null : "agents")}>
                   <div className="p-6 h-72 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -252,7 +270,7 @@ function Admin() {
                   <div className={`overflow-x-auto border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
                     <table className="w-full text-left text-sm">
                       <thead className={`${isDark ? 'bg-slate-900 text-slate-500' : 'bg-slate-100 text-slate-400'} uppercase text-[10px] font-black`}>
-                        <tr><th className="px-6 py-4">Rank & Agent Name</th><th className="px-6 py-4 text-center">Today</th><th className="px-6 py-4 text-right">This Month</th></tr>
+                        <tr><th className="px-6 py-4">Rank & Agent Name</th><th className="px-6 py-4 text-center">Today</th><th className="px-6 py-4 text-right">Selected Month</th></tr>
                       </thead>
                       <tbody className={`divide-y ${isDark ? 'divide-slate-800' : 'divide-slate-100'}`}>
                         {filteredAgents.map((a, idx) => (
@@ -319,7 +337,185 @@ function Admin() {
   );
 }
 
-// --- Sub-Components ---
+// --- Custom Calendar Dropdown Sub-Component ---
+const CustomDateRangePicker = ({ value, onChange, isDark }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  const [baseDate, setBaseDate] = useState(new Date(2026, 4, 1)); 
+  const [tempRange, setTempRange] = useState({ start: value.startDate, end: value.endDate });
+
+  useEffect(() => {
+    setTempRange({ start: value.startDate, end: value.endDate });
+  }, [value]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const formatDateLabel = (d) => {
+    if (!d) return "";
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const changeBaseMonth = (amount) => {
+    const newBase = new Date(baseDate);
+    newBase.setMonth(newBase.getMonth() + amount);
+    setBaseDate(newBase);
+  };
+
+  const getDaysArray = (year, month) => {
+    const date = new Date(year, month, 1);
+    const days = [];
+    
+    const firstDayIdx = date.getDay();
+    const prevMonthDaysCount = new Date(year, month, 0).getDate();
+    for (let i = firstDayIdx - 1; i >= 0; i--) {
+      days.push({ dayNum: prevMonthDaysCount - i, currentMonth: false, dateObj: new Date(year, month - 1, prevMonthDaysCount - i) });
+    }
+
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    for (let i = 1; i <= totalDays; i++) {
+      days.push({ dayNum: i, currentMonth: true, dateObj: new Date(year, month, i) });
+    }
+
+    const remainingCells = 42 - days.length; 
+    for (let i = 1; i <= remainingCells; i++) {
+      days.push({ dayNum: i, currentMonth: false, dateObj: new Date(year, month + 1, i) });
+    }
+    return days;
+  };
+
+  const handleDaySelection = (dateObj) => {
+    if (!tempRange.start || (tempRange.start && tempRange.end)) {
+      setTempRange({ start: dateObj, end: null });
+    } else if (tempRange.start && !tempRange.end) {
+      if (dateObj < tempRange.start) {
+        setTempRange({ start: dateObj, end: tempRange.start });
+      } else {
+        setTempRange({ ...tempRange, end: dateObj });
+      }
+    }
+  };
+
+  const isSelectedOrInRange = (dateObj) => {
+    const { start, end } = tempRange;
+    const startZero = start ? new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime() : null;
+    const endZero = end ? new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime() : null;
+    const currentZero = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate()).getTime();
+
+    if (startZero && currentZero === startZero) return "bg-blue-600 text-white rounded-full font-bold";
+    if (endZero && currentZero === endZero) return "bg-blue-600 text-white rounded-full font-bold";
+    if (startZero && endZero && currentZero > startZero && currentZero < endZero) {
+      return "bg-slate-800/60 text-blue-400";
+    }
+    return "";
+  };
+
+  const renderCalendarPanel = (year, month, label) => {
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const cells = getDaysArray(year, month);
+
+    return (
+      <div className="w-64">
+        <div className="text-center font-bold text-sm text-slate-100 mb-4">{year} &nbsp; {label}</div>
+        <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400 mb-2">
+          {weekdays.map(d => <div key={d}>{d}</div>)}
+        </div>
+        <div className="grid grid-cols-7 text-center gap-y-1 text-xs">
+          {cells.map((cell, idx) => {
+            const rangeClass = isSelectedOrInRange(cell.dateObj);
+            const isToday = new Date().toDateString() === cell.dateObj.toDateString();
+            
+            return (
+              <button 
+                key={idx} 
+                onClick={() => handleDaySelection(cell.dateObj)}
+                className={`py-1.5 w-full flex items-center justify-center transition-all ${
+                  cell.currentMonth ? "text-slate-200" : "text-slate-600"
+                } ${rangeClass} ${isToday && !rangeClass ? "border border-blue-500/40 text-blue-400 rounded-full" : ""}`}
+              >
+                {cell.dayNum}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const leftYear = baseDate.getFullYear();
+  const leftMonth = baseDate.getMonth();
+  
+  const rightDate = new Date(baseDate);
+  rightDate.setMonth(rightDate.getMonth() + 1);
+  const rightYear = rightDate.getFullYear();
+  const rightMonth = rightDate.getMonth();
+
+  const monthStrings = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+          isDark ? 'bg-slate-950 border-slate-800 text-white hover:border-slate-700' : 'bg-slate-50 border-slate-200 text-slate-900 hover:bg-slate-100'
+        }`}
+      >
+        <FiCalendar className="text-blue-500 text-base" />
+        <span className="font-mono">{formatDateLabel(value.startDate)} 12:00 AM</span>
+        <span className="text-slate-500">&gt;</span>
+        <span className="font-mono">{formatDateLabel(value.endDate)} 11:59 PM</span>
+        <FiChevronDown className={`ml-2 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 mt-3 z-50 bg-[#0f172a] border border-slate-800 rounded-2xl shadow-2xl p-6 flex flex-col gap-6 w-[560px]">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-2">
+              <button onClick={() => changeBaseMonth(-1)} className="text-slate-400 hover:text-white p-1">&lt;&lt;</button>
+              <button onClick={() => changeBaseMonth(-1)} className="text-slate-400 hover:text-white p-1">&lt;</button>
+            </div>
+            <span className="text-xs font-mono text-slate-400">Select Custom Frame Timeline</span>
+            <div className="flex items-center gap-2">
+              <button onClick={() => changeBaseMonth(1)} className="text-slate-400 hover:text-white p-1">&gt;</button>
+              <button onClick={() => changeBaseMonth(1)} className="text-slate-400 hover:text-white p-1">&gt;&gt;</button>
+            </div>
+          </div>
+
+          <div className="flex gap-8 justify-between">
+            {renderCalendarPanel(leftYear, leftMonth, monthStrings[leftMonth])}
+            {renderCalendarPanel(rightYear, rightMonth, monthStrings[rightMonth])}
+          </div>
+
+          <div className="flex justify-end gap-3 border-t border-slate-800 pt-4 text-xs font-bold">
+            <button onClick={() => setTempRange({ start: null, end: null })} className="text-slate-400 hover:text-white px-4 py-2 transition">Clear</button>
+            <button 
+              onClick={() => {
+                if (tempRange.start && tempRange.end) {
+                  onChange({ startDate: tempRange.start, endDate: tempRange.end });
+                  setIsOpen(false);
+                }
+              }}
+              disabled={!tempRange.start || !tempRange.end}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white px-5 py-2 rounded-xl transition"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- Static Sub-Components ---
 const NavItem = ({ icon, label, active, onClick, isDark }) => (
   <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : isDark ? "text-slate-500 hover:bg-slate-900 hover:text-white" : "text-slate-500 hover:bg-slate-50 hover:text-blue-600"}`}>
     <span className="text-lg">{icon}</span> <span className="text-sm">{label}</span>
