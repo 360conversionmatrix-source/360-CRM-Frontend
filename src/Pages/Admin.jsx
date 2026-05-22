@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import axios from "axios";
 import darkImg from "../../public/final.png";    // Logo for Dark Theme
 import lightImg from "../../public/Tab_logo.png"; // Logo for Light Theme
@@ -27,12 +27,28 @@ function Admin() {
   const [searchResult, setSearchResult] = useState(null);
   const [openSection, setOpenSection] = useState("summary");
 
-  const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  // --- Range Sales State ---
+  const [rangeSalesCount, setRangeSalesCount] = useState(0);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  
+  // Initialize date range: Yesterday to Today
+  const todayStr = new Date().toISOString().split('T')[0];
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+  const [startDateStr, setStartDateStr] = useState(yesterdayStr);
+  const [startTimeStr, setStartTimeStr] = useState("12:00 AM");
+  const [endDateStr, setEndDateStr] = useState(todayStr);
+  const [endTimeStr, setEndTimeStr] = useState("11:59 PM");
+
+  // Calendar UI internal states
+  const [currentCalDate, setCurrentCalDate] = useState(new Date());
+  const datePickerRef = useRef(null);
 
   const DAILY_GOAL = 50; 
   const MONTHLY_GOAL = 1000;
+  const RANGE_GOAL = 200; // Target goal for the selected window
 
   // --- Theme Logic ---
   const [isDark, setIsDark] = useState(() => {
@@ -46,9 +62,19 @@ function Admin() {
       localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
     }
   }, [isDark]);
+
+  // Close calendar popover on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
+        setShowDatePicker(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const activeLogo = isDark ? darkImg : lightImg;
   const bgColor = isDark ? "bg-[#020617]" : "bg-slate-50";
@@ -76,20 +102,45 @@ function Admin() {
       .map(item => ({ name: item.agent?.split(' ')[0], sales: Number(item.todaySales) || 0 })), 
   [filteredAgents]);
 
-  // --- API Calls ---
+  // Helper to convert 12h format to 24h format for ISO parsing
+  const convertTo24h = (timeStr) => {
+    const [time, modifier] = timeStr.split(" ");
+    let [hours, minutes] = time.split(":");
+    if (hours === "12") hours = "00";
+    if (modifier === "PM") hours = parseInt(hours, 10) + 12;
+    return `${String(hours).padStart(2, "0")}:${minutes}:00`;
+  };
+
+  // --- API Fetch ---
   const fetchDashboardData = () => {
     setLoading(true);
-    const params = { month: selectedMonth, year: selectedYear };
+
+    const startISO = new Date(`${startDateStr}T${convertTo24h(startTimeStr)}`).toISOString();
+    const endISO = new Date(`${endDateStr}T${convertTo24h(endTimeStr)}`).toISOString();
+
+    const currentMonth = new Date(startDateStr).getMonth();
+    const currentYear = new Date(startDateStr).getFullYear();
+
+    const baseParams = { month: currentMonth, year: currentYear };
 
     Promise.all([
-      axios.get(`${apiUrl}/Agent-data`, { params }),
-      axios.get(`${apiUrl}/campaign-data`, { params }),
-      axios.get(`${apiUrl}/admin-data`, { headers: { "x-admin-password": password }, params })
-    ]).then(([agentRes, campaignRes, adminRes]) => {
+      axios.get(`${apiUrl}/Agent-data`, { params: baseParams }),
+      axios.get(`${apiUrl}/campaign-data`, { params: baseParams }),
+      axios.get(`${apiUrl}/admin-data`, { headers: { "x-admin-password": password }, params: baseParams }),
+      axios.get(`${apiUrl}/admin-data`, { 
+        headers: { "x-admin-password": password }, 
+        params: { startDate: startISO, endDate: endISO } 
+      })
+    ]).then(([agentRes, campaignRes, adminRes, rangeRes]) => {
       if (agentRes.data.agents) setAgents(agentRes.data.agents);
       if (agentRes.data.totals) setTotals(agentRes.data.totals);
       setStats(campaignRes.data.stats || []);
       if (Array.isArray(adminRes.data)) setData(adminRes.data);
+      
+      if (rangeRes.data && typeof rangeRes.data.totalSales !== 'undefined') {
+        setRangeSalesCount(rangeRes.data.totalSales);
+      }
+      
       setLastUpdated(new Date());
       setLoading(false);
     }).catch(err => {
@@ -98,7 +149,7 @@ function Admin() {
     });
   };
 
-  useEffect(() => { if (authenticated) fetchDashboardData(); }, [authenticated, selectedMonth, selectedYear]);
+  useEffect(() => { if (authenticated) fetchDashboardData(); }, [authenticated]);
 
   const handleLogin = async () => {
     try {
@@ -122,6 +173,79 @@ function Admin() {
       const lead = await response.json();
       setSearchResult(lead);
     } catch (err) { setError("Search failed."); }
+  };
+
+  // --- Calendar Date Selection Helper ---
+  const handleCalendarDayClick = (dateString) => {
+    if (!startDateStr || (startDateStr && endDateStr)) {
+      setStartDateStr(dateString);
+      setEndDateStr("");
+    } else if (startDateStr && !endDateStr) {
+      if (new Date(dateString) < new Date(startDateStr)) {
+        setEndDateStr(startDateStr);
+        setStartDateStr(dateString);
+      } else {
+        setEndDateStr(dateString);
+      }
+    }
+  };
+
+  // Render Calendar Grid Utility
+  const renderCalendarMonth = (year, month) => {
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    
+    const days = [];
+    // Previous Month Fillers
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      days.push({ day: prevMonthDays - i, isCurrentMonth: false, dateStr: new Date(year, month - 1, prevMonthDays - i).toISOString().split('T')[0] });
+    }
+    // Current Month Days
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push({ day: i, isCurrentMonth: true, dateStr: new Date(year, month, i).toISOString().split('T')[0] });
+    }
+    // Next Month Fillers
+    const totalSlots = 42; 
+    const nextDaysNeeded = totalSlots - days.length;
+    for (let i = 1; i <= nextDaysNeeded; i++) {
+      days.push({ day: i, isCurrentMonth: false, dateStr: new Date(year, month + 1, i).toISOString().split('T')[0] });
+    }
+
+    return (
+      <div className="w-1/2 p-2">
+        <div className="text-center font-bold mb-4 text-sm flex justify-center gap-1">
+          <span>{year}</span> <span>{monthNames[month]}</span>
+        </div>
+        <div className="grid grid-cols-7 gap-y-1 text-center text-xs">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+            <div key={d} className="text-slate-500 font-medium mb-1">{d}</div>
+          ))}
+          {days.map((item, idx) => {
+            const isSelectedStart = startDateStr === item.dateStr;
+            const isSelectedEnd = endDateStr === item.dateStr;
+            const isInRange = startDateStr && endDateStr && new Date(item.dateStr) > new Date(startDateStr) && new Date(item.dateStr) < new Date(endDateStr);
+            
+            return (
+              <div 
+                key={idx} 
+                onClick={() => handleCalendarDayClick(item.dateStr)}
+                className={`py-1.5 cursor-pointer relative font-semibold transition-all rounded-lg text-[11px]
+                  ${!item.isCurrentMonth ? 'text-slate-600 opacity-40' : 'text-slate-300 hover:bg-slate-800'}
+                  ${isSelectedStart ? 'bg-blue-600 text-white rounded-l-full z-10' : ''}
+                  ${isSelectedEnd ? 'bg-blue-600 text-white rounded-r-full z-10' : ''}
+                  ${isInRange ? 'bg-blue-500/10 text-blue-400 rounded-none' : ''}
+                `}
+              >
+                {item.day}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   if (!authenticated) {
@@ -186,33 +310,86 @@ function Admin() {
         </header>
 
         <div className="p-8 space-y-8 max-w-7xl mx-auto">
-          {/* Filters */}
-          <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center gap-6 shadow-xl transition-all`}>
-            <div className="flex items-center gap-3">
-              <FiCalendar className="text-blue-500" />
-              <select value={selectedMonth} onChange={(e) => setSelectedMonth(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, idx) => <option key={m} value={idx}>{m}</option>)}
-              </select>
-              <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className={`border rounded-xl px-4 py-2 text-sm outline-none ${isDark ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}>
-                {[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
+          
+          {/* Custom Range Picker Control Panel UI */}
+          <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center justify-between gap-6 shadow-xl relative transition-all`}>
+            <div className="flex items-center gap-3 relative" ref={datePickerRef}>
+              <button 
+                onClick={() => setShowDatePicker(!showDatePicker)}
+                className={`flex items-center gap-3 border rounded-xl px-4 py-2.5 text-sm font-semibold outline-none transition-all ${isDark ? 'bg-slate-950 border-slate-800 text-white hover:bg-slate-900' : 'bg-slate-50 border-slate-200 text-slate-900 hover:bg-slate-100'}`}
+              >
+                <FiCalendar className="text-blue-500 text-base" />
+                <span>{startDateStr || "Start Date"}</span>
+                <span className="text-slate-500 font-normal">to</span>
+                <span>{endDateStr || "End Date"}</span>
+                <FiChevronDown className="text-slate-400 text-xs ml-1" />
+              </button>
+
+              {/* Advanced UI Popover Dropdown Container */}
+              {showDatePicker && (
+                <div className={`absolute left-0 top-14 z-50 w-[580px] p-5 rounded-2xl border shadow-2xl flex flex-col ${isDark ? 'bg-[#0b1329] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
+                  {/* Top Raw String Configuration Inputs matching standard component inputs */}
+                  <div className="flex items-center gap-2 mb-4 text-xs font-mono">
+                    <input type="text" readOnly value={startDateStr} className={`w-28 px-2 py-1.5 rounded-lg text-center border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`} />
+                    <select value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} className={`px-2 py-1.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`}>
+                      <option value="12:00 AM">12:00 AM</option><option value="06:00 AM">06:00 AM</option><option value="12:00 PM">12:00 PM</option>
+                    </select>
+                    <span className="text-slate-500 font-sans mx-1">&gt;</span>
+                    <input type="text" readOnly value={endDateStr} className={`w-28 px-2 py-1.5 rounded-lg text-center border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`} />
+                    <select value={endTimeStr} onChange={(e) => setEndTimeStr(e.target.value)} className={`px-2 py-1.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`}>
+                      <option value="11:59 PM">11:59 PM</option><option value="06:00 PM">06:00 PM</option><option value="12:00 PM">12:00 PM</option>
+                    </select>
+                  </div>
+
+                  <hr className={`mb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`} />
+
+                  {/* Dual Calendar Visual Grid Wrapper */}
+                  <div className="flex gap-4">
+                    {renderCalendarMonth(currentCalDate.getFullYear(), currentCalDate.getMonth())}
+                    {renderCalendarMonth(currentCalDate.getFullYear(), currentCalDate.getMonth() + 1)}
+                  </div>
+
+                  {/* Action Bar */}
+                  <div className="flex justify-end gap-2 mt-4 border-t pt-4 border-slate-800">
+                    <button 
+                      onClick={() => { setStartDateStr(yesterdayStr); setEndDateStr(todayStr); }}
+                      className="px-4 py-1.5 text-xs font-bold text-slate-400 hover:text-white transition"
+                    >
+                      Clear
+                    </button>
+                    <button 
+                      onClick={() => { setShowDatePicker(false); fetchDashboardData(); }}
+                      className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition"
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button onClick={fetchDashboardData} className="ml-auto flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">
+
+            <button onClick={fetchDashboardData} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20">
               <FiRefreshCw className={loading ? "animate-spin" : ""} /> Refresh
             </button>
           </div>
 
           {loading ? (
             <div className="space-y-8 animate-pulse">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6"><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div><div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div></div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
+                <div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
+                <div className={`h-32 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
+              </div>
               <div className={`h-96 rounded-3xl ${isDark ? 'bg-slate-900' : 'bg-gray-200'}`}></div>
             </div>
           ) : (
             <>
-              {/* Stats Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Three Column KPI Stat Cards Layout Row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <StatCard isDark={isDark} label="Shift Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp />} color="#3b82f6" />
                 <StatCard isDark={isDark} label="Monthly Sales" value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 />} color="#10b981" />
+                {/* Custom Range Window Analytics Display Target Container Component */}
+                <StatCard isDark={isDark} label="Range Window Sales" value={rangeSalesCount} target={RANGE_GOAL} icon={<FiCalendar />} color="#f59e0b" />
               </div>
 
               {/* Sections Container */}
@@ -231,7 +408,7 @@ function Admin() {
                   </div>
                 </CollapsibleSection>
 
-                {/* --- AGENT SALES REPORT (RE-ADDED FULLY) --- */}
+                {/* --- AGENT SALES REPORT --- */}
                 <CollapsibleSection isDark={isDark} title="Agent Sales Report" isOpen={openSection === "agents"} onToggle={() => setOpenSection(openSection === "agents" ? null : "agents")}>
                   <div className="p-6 h-72 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -319,7 +496,7 @@ function Admin() {
   );
 }
 
-// --- Sub-Components ---
+// --- Shared Reused Child Layout Presentational UI Components ---
 const NavItem = ({ icon, label, active, onClick, isDark }) => (
   <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : isDark ? "text-slate-500 hover:bg-slate-900 hover:text-white" : "text-slate-500 hover:bg-slate-50 hover:text-blue-600"}`}>
     <span className="text-lg">{icon}</span> <span className="text-sm">{label}</span>
