@@ -42,13 +42,13 @@ function Admin() {
   const [endDateStr, setEndDateStr] = useState(todayStr);
   const [endTimeStr, setEndTimeStr] = useState("11:59 PM");
 
-  // Calendar UI internal states
+  // Calendar UI internal navigation state
   const [currentCalDate, setCurrentCalDate] = useState(new Date());
   const datePickerRef = useRef(null);
 
   const DAILY_GOAL = 50; 
   const MONTHLY_GOAL = 1000;
-  const RANGE_GOAL = 200; // Target goal for the selected window
+  const RANGE_GOAL = 200; 
 
   // --- Theme Logic ---
   const [isDark, setIsDark] = useState(() => {
@@ -62,10 +62,11 @@ function Admin() {
       localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
     }
   }, [isDark]);
 
-  // Close calendar popover on outside click
+  // Close custom range layout dropdown popover when clicking externally
   useEffect(() => {
     function handleClickOutside(event) {
       if (datePickerRef.current && !datePickerRef.current.contains(event.target)) {
@@ -102,7 +103,7 @@ function Admin() {
       .map(item => ({ name: item.agent?.split(' ')[0], sales: Number(item.todaySales) || 0 })), 
   [filteredAgents]);
 
-  // Helper to convert 12h format to 24h format for ISO parsing
+  // Helper parsing routine converting 12h clock values to standard 24h ISO components
   const convertTo24h = (timeStr) => {
     const [time, modifier] = timeStr.split(" ");
     let [hours, minutes] = time.split(":");
@@ -111,7 +112,7 @@ function Admin() {
     return `${String(hours).padStart(2, "0")}:${minutes}:00`;
   };
 
-  // --- API Fetch ---
+  // --- API Fetch Handler adapted for current short-circuit query parameters ---
   const fetchDashboardData = () => {
     setLoading(true);
 
@@ -120,13 +121,14 @@ function Admin() {
 
     const currentMonth = new Date(startDateStr).getMonth();
     const currentYear = new Date(startDateStr).getFullYear();
-
     const baseParams = { month: currentMonth, year: currentYear };
 
     Promise.all([
       axios.get(`${apiUrl}/Agent-data`, { params: baseParams }),
       axios.get(`${apiUrl}/campaign-data`, { params: baseParams }),
+      // Request A: Fetches baseline array context for underlying components matching month filters
       axios.get(`${apiUrl}/admin-data`, { headers: { "x-admin-password": password }, params: baseParams }),
+      // Request B: Targets short-circuit logic independently to extract range sales object payload values
       axios.get(`${apiUrl}/admin-data`, { 
         headers: { "x-admin-password": password }, 
         params: { startDate: startISO, endDate: endISO } 
@@ -135,8 +137,11 @@ function Admin() {
       if (agentRes.data.agents) setAgents(agentRes.data.agents);
       if (agentRes.data.totals) setTotals(agentRes.data.totals);
       setStats(campaignRes.data.stats || []);
+      
+      // Assign fallback client array data securely
       if (Array.isArray(adminRes.data)) setData(adminRes.data);
       
+      // Process standalone object payload containing specific range calculation counts
       if (rangeRes.data && typeof rangeRes.data.totalSales !== 'undefined') {
         setRangeSalesCount(rangeRes.data.totalSales);
       }
@@ -144,7 +149,7 @@ function Admin() {
       setLastUpdated(new Date());
       setLoading(false);
     }).catch(err => {
-      console.error(err);
+      console.error("Dashboard synchronization error:", err);
       setLoading(false);
     });
   };
@@ -175,7 +180,7 @@ function Admin() {
     } catch (err) { setError("Search failed."); }
   };
 
-  // --- Calendar Date Selection Helper ---
+  // --- Calendar Layout Multi-Select Intermediary Handlers ---
   const handleCalendarDayClick = (dateString) => {
     if (!startDateStr || (startDateStr && endDateStr)) {
       setStartDateStr(dateString);
@@ -190,24 +195,19 @@ function Admin() {
     }
   };
 
-  // Render Calendar Grid Utility
   const renderCalendarMonth = (year, month) => {
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const firstDayIndex = new Date(year, month, 1).getDay();
-    
     const prevMonthDays = new Date(year, month, 0).getDate();
     
     const days = [];
-    // Previous Month Fillers
     for (let i = firstDayIndex - 1; i >= 0; i--) {
       days.push({ day: prevMonthDays - i, isCurrentMonth: false, dateStr: new Date(year, month - 1, prevMonthDays - i).toISOString().split('T')[0] });
     }
-    // Current Month Days
     for (let i = 1; i <= daysInMonth; i++) {
       days.push({ day: i, isCurrentMonth: true, dateStr: new Date(year, month, i).toISOString().split('T')[0] });
     }
-    // Next Month Fillers
     const totalSlots = 42; 
     const nextDaysNeeded = totalSlots - days.length;
     for (let i = 1; i <= nextDaysNeeded; i++) {
@@ -311,7 +311,7 @@ function Admin() {
 
         <div className="p-8 space-y-8 max-w-7xl mx-auto">
           
-          {/* Custom Range Picker Control Panel UI */}
+          {/* Calendar Controller Panel Wrapper */}
           <div className={`${cardClass} p-4 rounded-2xl flex flex-wrap items-center justify-between gap-6 shadow-xl relative transition-all`}>
             <div className="flex items-center gap-3 relative" ref={datePickerRef}>
               <button 
@@ -325,10 +325,10 @@ function Admin() {
                 <FiChevronDown className="text-slate-400 text-xs ml-1" />
               </button>
 
-              {/* Advanced UI Popover Dropdown Container */}
+              {/* Advanced UI Popover Dropdown Container matching requested layouts */}
               {showDatePicker && (
                 <div className={`absolute left-0 top-14 z-50 w-[580px] p-5 rounded-2xl border shadow-2xl flex flex-col ${isDark ? 'bg-[#0b1329] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'}`}>
-                  {/* Top Raw String Configuration Inputs matching standard component inputs */}
+                  {/* Time Config Inputs */}
                   <div className="flex items-center gap-2 mb-4 text-xs font-mono">
                     <input type="text" readOnly value={startDateStr} className={`w-28 px-2 py-1.5 rounded-lg text-center border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`} />
                     <select value={startTimeStr} onChange={(e) => setStartTimeStr(e.target.value)} className={`px-2 py-1.5 rounded-lg border ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-100'}`}>
@@ -343,13 +343,13 @@ function Admin() {
 
                   <hr className={`mb-4 ${isDark ? 'border-slate-800' : 'border-slate-100'}`} />
 
-                  {/* Dual Calendar Visual Grid Wrapper */}
+                  {/* Calendar Matrix View */}
                   <div className="flex gap-4">
                     {renderCalendarMonth(currentCalDate.getFullYear(), currentCalDate.getMonth())}
                     {renderCalendarMonth(currentCalDate.getFullYear(), currentCalDate.getMonth() + 1)}
                   </div>
 
-                  {/* Action Bar */}
+                  {/* Foot Action Buttons */}
                   <div className="flex justify-end gap-2 mt-4 border-t pt-4 border-slate-800">
                     <button 
                       onClick={() => { setStartDateStr(yesterdayStr); setEndDateStr(todayStr); }}
@@ -384,15 +384,15 @@ function Admin() {
             </div>
           ) : (
             <>
-              {/* Three Column KPI Stat Cards Layout Row */}
+              {/* Three Column KPI Cards Panel */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <StatCard isDark={isDark} label="Shift Sales" value={totals.totalShiftSales} target={DAILY_GOAL} icon={<FiTrendingUp />} color="#3b82f6" />
                 <StatCard isDark={isDark} label="Monthly Sales" value={totals.totalMonthSales} target={MONTHLY_GOAL} icon={<FiBarChart2 />} color="#10b981" />
-                {/* Custom Range Window Analytics Display Target Container Component */}
+                {/* Dynamically connected range analytics data window status card */}
                 <StatCard isDark={isDark} label="Range Window Sales" value={rangeSalesCount} target={RANGE_GOAL} icon={<FiCalendar />} color="#f59e0b" />
               </div>
 
-              {/* Sections Container */}
+              {/* Collapsible Sections Layout */}
               <div className="space-y-6">
                 <CollapsibleSection isDark={isDark} title="Campaign Performance" isOpen={openSection === "campaigns"} onToggle={() => setOpenSection(openSection === "campaigns" ? null : "campaigns")}>
                   <div className="p-6 h-72 w-full">
@@ -454,6 +454,7 @@ function Admin() {
                   </div>
                 </CollapsibleSection>
 
+                {/* --- DETAILED CLIENT DATA --- */}
                 <CollapsibleSection isDark={isDark} title="Detailed Client Data" isOpen={openSection === "clients"} onToggle={() => setOpenSection(openSection === "clients" ? null : "clients")}>
                   <div className={`p-4 border-b flex gap-3 ${isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
                     <input type="text" placeholder="Search number..." className={`flex-1 px-4 py-2 rounded-xl border outline-none ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200'}`} value={searchNumber} onChange={(e) => setSearchNumber(e.target.value)} />
@@ -496,7 +497,7 @@ function Admin() {
   );
 }
 
-// --- Shared Reused Child Layout Presentational UI Components ---
+// --- Presentational Sub-Components ---
 const NavItem = ({ icon, label, active, onClick, isDark }) => (
   <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${active ? "bg-blue-600 text-white shadow-lg shadow-blue-900/20" : isDark ? "text-slate-500 hover:bg-slate-900 hover:text-white" : "text-slate-500 hover:bg-slate-50 hover:text-blue-600"}`}>
     <span className="text-lg">{icon}</span> <span className="text-sm">{label}</span>
