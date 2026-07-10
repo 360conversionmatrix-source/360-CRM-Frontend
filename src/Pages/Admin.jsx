@@ -40,7 +40,7 @@ function Admin() {
   const [appliedEnd, setAppliedEnd] = useState("");
   const [rangeTotals, setRangeTotals] = useState(0);
 
-  const DAILY_GOAL = 50; 
+  const DAILY_GOAL = 100; 
   const MONTHLY_GOAL = 1000;
 
   // --- Theme Logic ---
