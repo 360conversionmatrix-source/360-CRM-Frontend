@@ -4,7 +4,7 @@ import {
   CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell 
 } from "recharts";
 
-const apiUrl = "https://sales-crm-8og5.onrender.com";
+const apiUrl = "https://crm-backend-fps2.onrender.com/";
 
 function Agents() {
   const [agents, setAgents] = useState([]);
