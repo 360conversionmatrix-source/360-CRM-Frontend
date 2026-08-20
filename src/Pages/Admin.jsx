@@ -12,7 +12,7 @@ import {
   FiTrendingUp, FiRefreshCw, FiCalendar, FiSun, FiMoon 
 } from "react-icons/fi";
 
-const apiUrl = "https://crm-backend-fps2.onrender.com/";
+const apiUrl = "https://crm-backend-fps2.onrender.com";
 
 function Admin() {
   const [password, setPassword] = useState("");
